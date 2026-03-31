@@ -1,40 +1,76 @@
-# This is a basic workflow to help you get started with Actions
+name: Code Coverage Check
 
-name: CI
-
-# Controls when the action will run. 
 on:
-  # Triggers the workflow on push or pull request events but only for the master branch
-  push:
-    branches: [ main ]
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
-  # This workflow contains a single job called "build"
-  build:
-    # The type of runner that the job will run on
+  coverage:
     runs-on: ubuntu-latest
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v2
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      # Runs a single command using the runners shell
-      - name: Run a one-line script
-        run: echo Hello, world!
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
 
-      # Runs a set of commands using the runners shell
-      - name: Run a multi-line script
+      - name: Build & Test (Generate JaCoCo)
+        run: mvn clean verify
+
+      - name: Debug JaCoCo (optional)
+        run: ls -R target/site || true
+
+      - name: Extract JaCoCo Coverage
+        id: coverage
         run: |
-          echo Add other actions to build,
-          echo test, and deploy your project
-      - name: java version
-        run: java -version
-      - name: maven version
-        run: mvn --version
-      - name: python version
-        run: python --version
-      - name: docker version
-        run: docker -v
-      - name: terrafrom version
-        run: terraform --version
-      
+          FILE=target/site/jacoco/jacoco.xml
+
+          if [ ! -f "$FILE" ]; then
+            echo "coverage=0" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          LINE=$(grep 'type="INSTRUCTION"' $FILE | head -1)
+
+          COVERED=$(echo $LINE | sed -n 's/.*covered="\([0-9]*\)".*/\1/p')
+          MISSED=$(echo $LINE | sed -n 's/.*missed="\([0-9]*\)".*/\1/p')
+
+          COVERED=${COVERED:-0}
+          MISSED=${MISSED:-0}
+
+          TOTAL=$((COVERED + MISSED))
+
+          if [ "$TOTAL" -eq 0 ]; then
+            PERCENT=0
+          else
+            PERCENT=$((100 * COVERED / TOTAL))
+          fi
+
+          echo "coverage=$PERCENT" >> $GITHUB_OUTPUT
+
+      - name: Comment PR with Coverage
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          message: |
+            ## Code Coverage Report
+
+            Coverage: **${{ steps.coverage.outputs.coverage }}%**
+
+            ${{ steps.coverage.outputs.coverage >= 80 && '🟢 PASS' || '🔴 FAIL (Minimum 80% required)' }}
+
+      - name: Fail if Coverage < 80%
+        run: |
+          COVERAGE=${{ steps.coverage.outputs.coverage }}
+          COVERAGE=${COVERAGE:-0}
+
+          if [ "$COVERAGE" -lt 80 ]; then
+            echo "Coverage below 80%"
+            exit 1
+          fi
