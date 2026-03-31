@@ -23,10 +23,17 @@ jobs:
       - name: Extract JaCoCo Coverage
         id: coverage
         run: |
-          COVERAGE=$(grep -oPm1 '(?<=<counter type="INSTRUCTION" missed=")[0-9]+' target/site/jacoco/jacoco.xml)
-          MISSED=$(grep -oPm1 '(?<=<counter type="INSTRUCTION" covered=")[0-9]+' target/site/jacoco/jacoco.xml)
-          TOTAL=$((COVERAGE + MISSED))
-          PERCENT=$((100 * MISSED / TOTAL))
+          COVERED=$(grep -oPm1 '(?<=<counter type="INSTRUCTION" covered=")[0-9]+' target/site/jacoco/jacoco.xml || echo 0)
+          MISSED=$(grep -oPm1 '(?<=<counter type="INSTRUCTION" missed=")[0-9]+' target/site/jacoco/jacoco.xml || echo 0)
+      
+          TOTAL=$((COVERED + MISSED))
+      
+          if [ "$TOTAL" -eq 0 ]; then
+            PERCENT=0
+          else
+            PERCENT=$((100 * COVERED / TOTAL))
+          fi
+      
           echo "coverage=$PERCENT" >> $GITHUB_OUTPUT
 
       - name: Comment PR with Coverage
